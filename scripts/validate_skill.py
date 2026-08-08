@@ -138,7 +138,6 @@ def validate(root: Path, source: Path | None = None) -> list[str]:
             "执行是本 Skill 的主体",
             "每阶段的执行循环",
             "八席独立评审与迭代",
-            "不再增加 27 席",
             "stages/01-modeling/SKILL.md",
             "stages/02-solving/SKILL.md",
             "stages/03-paper/SKILL.md",
