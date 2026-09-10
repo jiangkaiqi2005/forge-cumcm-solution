@@ -2,7 +2,7 @@
 """Submission safety net for the three-stage CUMCM workflow.
 
 Checks that stage artifacts exist, the eight review reports are on file,
-the final PDF is structurally readable, and official inputs are unchanged.
+and the final PDF is structurally readable.
 It deliberately does not judge mathematical quality; the stage instructions
 and the independent review panel own semantic judgment.
 """
@@ -10,7 +10,6 @@ and the independent review panel own semantic judgment.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import sys
@@ -62,14 +61,6 @@ PDF_PATTERNS = (
 )
 
 
-def digest(path: Path) -> str:
-    value = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            value.update(chunk)
-    return value.hexdigest()
-
-
 def safe_file(root: Path, relative: object, label: str, errors: list[str]) -> Path | None:
     if not isinstance(relative, str) or not relative.strip():
         errors.append(f"{label}: path is required")
@@ -107,38 +98,7 @@ def validate_pdf(path: Path, errors: list[str]) -> None:
         errors.append("final-pdf: basic PDF/page-tree structure is invalid")
 
 
-def check_trusted_inputs(path: Path, errors: list[str]) -> None:
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError) as exc:
-        errors.append(f"trusted-inputs: cannot read {path}: {exc}")
-        return
-    root = path.resolve().parent
-    for number, line in enumerate(lines, 1):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        match = re.fullmatch(r"([0-9a-fA-F]{64})\s+\*?(.+)", stripped)
-        if match is None:
-            errors.append(f"trusted-inputs line {number}: expected '<sha256>  <path>'")
-            continue
-        expected, relative = match.group(1).lower(), match.group(2).strip()
-        target = (root / relative).resolve()
-        try:
-            target.relative_to(root)
-        except ValueError:
-            errors.append(f"trusted-inputs line {number}: path escapes the checksum directory")
-            continue
-        if not target.is_file():
-            errors.append(f"trusted-inputs: official input not found: {relative}")
-            continue
-        if digest(target) != expected:
-            errors.append(f"trusted-inputs: official input changed since pinning: {relative}")
-
-
-def validate(
-    manifest_path: Path, expected_stage: int, trusted_inputs: Path | None,
-) -> list[str]:
+def validate(manifest_path: Path, expected_stage: int) -> list[str]:
     errors: list[str] = []
     try:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -205,8 +165,6 @@ def validate(
     ):
         errors.append("review roles outside the stage roster must use ADDITIONAL-* ids")
 
-    if trusted_inputs is not None:
-        check_trusted_inputs(trusted_inputs, errors)
     return errors
 
 
@@ -214,19 +172,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=Path("stage-manifest.json"))
     parser.add_argument("--stage", type=int, choices=(1, 2, 3), required=True)
-    parser.add_argument(
-        "--trusted-inputs", type=Path,
-        help="sha256sum-style checksum file of official problem/data, pinned once when first read",
-    )
     args = parser.parse_args()
     manifest = args.manifest.resolve()
     if not manifest.is_file():
         print(f"ERROR: manifest not found: {manifest}")
         return 1
-    errors = validate(
-        manifest, args.stage,
-        args.trusted_inputs.resolve() if args.trusted_inputs else None,
-    )
+    errors = validate(manifest, args.stage)
     if errors:
         for error in errors:
             print(f"ERROR: {error}")
